@@ -12,6 +12,7 @@ import {
   redemptionMessage,
 } from "../protocol";
 import { jsonError, postJson, readJsonObject } from "../wire";
+import { releaseReservation } from "./maintenance";
 import type { Deps } from "./types";
 
 const UPSTREAM_TIMEOUT_MS = 120_000;
@@ -155,10 +156,7 @@ export async function handleRedeem(request: Request, deps: Deps): Promise<Respon
     if (!upstream.ok) throw new Error(`upstream_${upstream.status}`);
     result = upstream.json ?? {};
   } catch (error) {
-    await db.batch([
-      db.prepare("UPDATE vouchers SET remaining_units = remaining_units + ? WHERE id = ?").bind(maxUnits, voucherId),
-      db.prepare("UPDATE redemptions SET status = 'failed', reserved_units = 0 WHERE id = ?").bind(redemptionId),
-    ]);
+    await db.batch(releaseReservation(db, redemptionId, voucherId, maxUnits, "failed"));
     const detail = error instanceof Error && /^upstream_\d+$/.test(error.message) ? error.message : "El proveedor no respondió.";
     return jsonError("inference_upstream_failed", 502, detail);
   }
@@ -169,12 +167,19 @@ export async function handleRedeem(request: Request, deps: Deps): Promise<Respon
   const reported = result.usage && (promptTokens > 0 || completionUsed > 0);
   const usedUnits = reported ? Math.min(Math.max(promptTokens + completionUsed, 1), maxUnits) : maxUnits;
   const refund = maxUnits - usedUnits;
+  // Both statements only apply while the row is still pending, so a sweep that
+  // already returned this reservation cannot be refunded twice.
   await db.batch([
-    db.prepare("UPDATE vouchers SET remaining_units = remaining_units + ? WHERE id = ?").bind(refund, voucherId),
     db
       .prepare(
-        `UPDATE redemptions SET status = 'completed', units = ?, prompt_tokens = ?, completion_tokens = ?, model = ?
-         WHERE id = ?`,
+        `UPDATE vouchers SET remaining_units = remaining_units + ?
+         WHERE id = ? AND EXISTS (SELECT 1 FROM redemptions WHERE id = ? AND status = 'pending')`,
+      )
+      .bind(refund, voucherId, redemptionId),
+    db
+      .prepare(
+        `UPDATE redemptions SET status = 'completed', units = ?, reserved_units = 0, prompt_tokens = ?, completion_tokens = ?, model = ?
+         WHERE id = ? AND status = 'pending'`,
       )
       .bind(usedUnits, promptTokens, completionUsed, result.model || model, redemptionId),
   ]);

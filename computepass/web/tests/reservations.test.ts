@@ -64,7 +64,7 @@ function setup() {
   // Same spend controls as app/page.tsx: only U, never more than the advertised price.
   const payments = new x402Client()
     .register("eip155:*", new B402ExactClientScheme({ account: buyer, methods: ["eip3009"] }))
-    .setSpendControls({ maxAmountPerPayment: false, allowedAssets: [{ network: "eip155:97", asset: U_TOKEN, maxAmountPerPayment: "18000000000000000" }] });
+    .setSpendControls({ maxAmountPerPayment: false, allowedAssets: [{ network: "eip155:97", asset: U_TOKEN, maxAmountPerPayment: "80000000000000000" }] });
   const paidFetch = wrapFetchWithPayment(server, payments);
   const buy = (offerId = "llama-70b-burst", who: string = buyer.address) =>
     paidFetch(`${BASE}/api/reservations`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ offerId, buyer: who }) });
@@ -95,7 +95,7 @@ describe("POST /api/reservations", () => {
     );
     assert.equal(res.status, 402);
     const required = decodeHeader<any>(res.headers.get("PAYMENT-REQUIRED")!);
-    assert.equal(required.accepts[0].amount, "10000000000000000");
+    assert.equal(required.accepts[0].amount, "25000000000000000");
     assert.equal(required.accepts[0].payTo, getAddress(MERCHANT));
   });
 

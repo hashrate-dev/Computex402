@@ -1,0 +1,1 @@
+ALTER TABLE `payments` ADD `valid_before` integer;

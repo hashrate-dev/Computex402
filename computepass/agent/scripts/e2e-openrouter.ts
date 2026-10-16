@@ -31,8 +31,8 @@ const base = {
   COMPUTEPASS_API_URL: "http://localhost:4022",
   BUYER_PRIVATE_KEY: generatePrivateKey(),
   COMPUTEPASS_STATE_DIR: mkdtempSync(join(tmpdir(), "cp-or-")),
-  BUDGET_MAX_PER_PURCHASE: "0.015",
-  BUDGET_MAX_PER_DAY: "0.05",
+  BUDGET_MAX_PER_PURCHASE: "0.03",
+  BUDGET_MAX_PER_DAY: "0.1",
 };
 
 try {

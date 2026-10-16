@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { beforeEach, describe, it } from "node:test";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { handleRedeem } from "../lib/server/redeem";
+import { sweepStaleRedemptions } from "../lib/server/maintenance";
 import { CHAIN_ID, redemptionMessage } from "../lib/protocol";
 import type { Deps } from "../lib/server/types";
 import { createTestDb } from "./d1-sqlite";
@@ -187,6 +188,23 @@ describe("POST /api/redeem", () => {
     const statuses = (await Promise.all([a, b])).map((r) => r.status).sort();
     assert.deepEqual(statuses, [200, 409]);
     assert.equal(remaining(ctx.db, LLAMA_VOUCHER), 300 - 50);
+  });
+
+  it("never refunds twice when a sweep races a slow inference", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const original = ctx.upstream.reply;
+    ctx.upstream.reply = async (b) => {
+      await gate;
+      return original(b);
+    };
+    const inflight = handleRedeem(post(await signedBody({ maxUnits: 300 })), ctx.deps);
+    while (!ctx.upstream.calls.length) await new Promise((r) => setTimeout(r, 2));
+    assert.deepEqual(await sweepStaleRedemptions({ ...ctx.deps, now: () => NOW + 20 * 60 }), { expired: 1 });
+    release();
+    await inflight;
+    // The sweep returned the 300 reserved units; the late completion must not refund again.
+    assert.equal(remaining(ctx.db, LLAMA_VOUCHER), 50_000);
   });
 
   it("rejects malformed bodies with 400 instead of crashing", async () => {

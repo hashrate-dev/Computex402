@@ -171,7 +171,7 @@ export default function Home() {
           <footer><span>x402 · EIP-3009</span><span>REDEEMABLE</span></footer>
         </article>
         <div className="float-stat stat-left"><span>Capacity</span><strong>50.000</strong></div>
-        <div className="float-stat stat-right"><span>Fixed price</span><strong>0,01 U</strong></div>
+        <div className="float-stat stat-right"><span>Fixed price</span><strong>0,025 U</strong></div>
       </div>
       <div className="pipeline" aria-label="Flujo del producto">
         <div><small>01</small><b>Elegí capacidad</b><span>precio y SLA explícitos</span></div><i>→</i>

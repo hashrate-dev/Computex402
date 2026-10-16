@@ -12,5 +12,9 @@ declare namespace Cloudflare {
     /** Host redemption signatures must name; defaults to the request host. */
     PUBLIC_HOST?: string;
     VOUCHER_CONTRACT_ADDRESS?: string;
+    /** JSON-RPC for payment reconciliation; defaults to a public BSC testnet node. */
+    BSC_RPC_URL?: string;
+    /** Bearer token (32+ chars) for POST /api/admin/maintenance; unset disables it. */
+    ADMIN_TOKEN?: string;
   }
 }

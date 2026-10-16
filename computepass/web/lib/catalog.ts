@@ -10,16 +10,24 @@ export const DEFAULT_INFERENCE_API_URL = "https://openrouter.ai/api/v1";
  * One unit = one token, prompt and completion alike, as reported by the
  * provider. `upstreamModel` is the provider model each offer is served with,
  * so a DeepSeek pass can never be served by Llama.
+ *
+ * `upstreamUsdPerMTok` is the provider list price (OpenRouter /api/v1/models,
+ * read 2026-10-16). Prices are set so that a pass used entirely on completion
+ * tokens (the expensive case) still leaves at least MIN_MARGIN, assuming
+ * 1 U = 1 USD. tests/catalog.test.ts enforces it; re-read the provider price
+ * before changing either number.
  */
+export const MIN_MARGIN = 1.5;
 export const offers = [
   {
     id: "llama-70b-burst",
     model: "Llama 3.3 70B",
     upstreamModel: "meta-llama/llama-3.3-70b-instruct",
+    upstreamUsdPerMTok: { prompt: 0.1, completion: 0.32 },
     provider: "ComputePass Pool",
     units: 50_000,
-    priceAtomic: "10000000000000000",
-    priceLabel: "0,01 U",
+    priceAtomic: "25000000000000000",
+    priceLabel: "0,025 U",
     decimals: U_DECIMALS,
     latency: "< 1,8 s",
     latencyMs: 1_800,
@@ -29,10 +37,11 @@ export const offers = [
     id: "deepseek-r1-flex",
     model: "DeepSeek R1",
     upstreamModel: "deepseek/deepseek-r1",
+    upstreamUsdPerMTok: { prompt: 0.7, completion: 2.5 },
     provider: "ComputePass Pool",
-    units: 100_000,
-    priceAtomic: "18000000000000000",
-    priceLabel: "0,018 U",
+    units: 20_000,
+    priceAtomic: "80000000000000000",
+    priceLabel: "0,08 U",
     decimals: U_DECIMALS,
     latency: "< 3,2 s",
     latencyMs: 3_200,
