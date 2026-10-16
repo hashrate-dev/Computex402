@@ -5,6 +5,7 @@ import { ComputePassClient, type Offer } from "./api.js";
 import { loadConfig } from "./config.js";
 import { BudgetError, Ledger } from "./ledger.js";
 import { quote, usableVoucher } from "./planner.js";
+import { estimatePromptTokens } from "../../web/lib/protocol.js";
 
 /**
  * OpenAI / OpenRouter-compatible gateway in front of ComputePass vouchers.
@@ -91,19 +92,21 @@ async function completions(req: IncomingMessage, res: ServerResponse) {
   const maxTokens = Math.min(4096, Math.max(1, Number(body.max_tokens ?? body.max_completion_tokens ?? DEFAULT_MAX_TOKENS)));
   const prompt = flatten(body.messages);
   if (prompt.length > 16000) return oaiError(res, 400, "prompt exceeds 16,000 characters", "invalid_request_error");
+  // Vouchers bill prompt + completion tokens, so the signed cap covers both.
+  const units = estimatePromptTokens(prompt.trim()) + maxTokens;
 
   const offers = await api.offers();
-  const offer = await resolveOffer(String(body.model ?? "computepass/auto"), offers, maxTokens);
+  const offer = await resolveOffer(String(body.model ?? "computepass/auto"), offers, units);
   if (!offer) return oaiError(res, 404, `unknown model or no offer within budget: ${body.model}`, "invalid_request_error");
 
   try {
     const mine = (await api.vouchers()).filter((v) => v.offerId === offer.id);
-    let voucher = usableVoucher(mine, offers, { units: maxTokens });
+    let voucher = usableVoucher(mine, offers, { units });
     if (!voucher) voucher = (await api.buy(offer.id)).voucher;
-    const r = await api.redeem(voucher.id, prompt, maxTokens);
+    const r = await api.redeem(voucher.id, prompt, units);
     const id = `chatcmpl-${r.redemptionId ?? randomUUID()}`;
     const created = Math.floor(Date.now() / 1000);
-    const usage = { prompt_tokens: 0, completion_tokens: r.unitsUsed ?? 0, total_tokens: r.unitsUsed ?? 0 };
+    const usage = { prompt_tokens: r.promptTokens ?? 0, completion_tokens: r.completionTokens ?? 0, total_tokens: r.unitsUsed ?? 0 };
     const meta = { voucher_id: voucher.id, remaining_units: r.remainingUnits, receipt_id: r.receiptId };
     const model = `computepass/${offer.id}`;
     if (body.stream) {

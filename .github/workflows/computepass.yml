@@ -1,0 +1,29 @@
+name: computepass
+
+on:
+  pull_request:
+    paths: ["computepass/**", ".github/workflows/computepass.yml"]
+  push:
+    branches: [main]
+    paths: ["computepass/**", ".github/workflows/computepass.yml"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: web install
+        working-directory: computepass/web
+        run: npm ci --no-audit --no-fund
+      - name: web typecheck, lint, tests, build
+        working-directory: computepass/web
+        run: npm run typecheck && npm run lint && npm test && npm run build
+      - name: agent install
+        working-directory: computepass/agent
+        run: npm ci --no-audit --no-fund
+      - name: agent typecheck and end-to-end against the real handlers
+        working-directory: computepass/agent
+        run: npm run typecheck && npm run e2e && npm run e2e-openrouter

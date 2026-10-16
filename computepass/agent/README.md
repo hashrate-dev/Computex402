@@ -1,22 +1,22 @@
 # ComputePass 402: servidor MCP y agente de referencia
 
-Dos piezas del hito 28 que no dependen del código del backend:
+Cliente y agentes de [ComputePass 402](../web/):
 
 - **`src/mcp.ts`**: servidor MCP con las 6 herramientas del diseño (`list_compute_offers`, `quote_inference`, `buy_compute_pass`, `get_voucher_balance`, `redeem_inference`, `get_execution_receipt`). Modo stdio por defecto; `--http <puerto>` para MCP remoto (Streamable HTTP, exige `MCP_HTTP_TOKEN`).
 - **`src/agent.ts`**: agente que descubre ofertas, las compara por precio y SLA, respeta un presupuesto, paga con x402, redime y emite un comprobante. Sin intervención humana y sin LLM: decide con reglas, que es lo que se puede demostrar de forma fiable.
 
-Ambos hablan con la API documentada (`/api/status`, `/api/offers`, `/api/vouchers`, `/api/reservations`, `/api/redeem`) y pagan con el cliente oficial `@x402/fetch` + `@bnb-chain/b402` (esquema `exact`, método `eip3009`), el mismo que usa el sitio.
+Ambos hablan con la API de `../web` (`/api/status`, `/api/offers`, `/api/vouchers`, `/api/reservations`, `/api/redeem`) y pagan con el cliente oficial `@x402/fetch` + `@bnb-chain/b402` (esquema `exact`, método `eip3009`), el mismo que usa el sitio. El mensaje de redención se importa de `../web/lib/protocol.ts`, así que agente y backend no pueden divergir.
 
 ## Estado honesto
 
-- Probado de extremo a extremo **solo contra `mock/server.ts`**, un servidor de prueba que implementa la API del documento. Verifica de verdad la firma EIP-3009, el pagador, el importe, el activo y el nonce, pero **la liquidación es simulada** (no toca la cadena) y la inferencia es un eco salvo que se configure `INFERENCE_API_URL`.
-- **No se ha probado contra el ComputePass real**: el código no está disponible y la URL no es accesible desde aquí. Los nombres de campo que el documento no fija están marcados `ASSUMED` en `src/api.ts` (cuerpo de `/api/reservations` = `{offerId, owner}`, cuerpo de `/api/redeem` = `{voucherId, prompt, maxTokens, signature}`). Hay que alinearlos con el backend real.
+- `mock/server.ts` ejecuta **los handlers reales** de `../web/lib/server` sobre SQLite en memoria con las migraciones reales. Solo dos cosas son falsas: el facilitador x402 (`/verify` recupera de verdad el firmante EIP-3009, pero `/settle` no toca la cadena) y la inferencia (eco con conteo de tokens, salvo `INFERENCE_API_URL`).
+- **No se ha hecho una compra real en testnet** ni una llamada real a OpenRouter: `openrouter.ai` y el facilitador de Unibase están bloqueados por la red del entorno de desarrollo.
 
 ## Uso
 
 ```bash
-cp -r /mnt/project-files/computex402/computepass/agent ~/work/computepass-agent   # la carpeta compartida no admite symlinks
-cd ~/work/computepass-agent && npm install
+(cd ../web && npm ci)                       # el servidor de prueba usa los handlers de la web
+npm ci
 npm run e2e                                 # prueba completa contra el servidor de prueba (clave desechable, sin fondos)
 ```
 
@@ -50,8 +50,8 @@ Tres puntos de contacto, todos con la interfaz OpenAI `chat/completions`:
    ```bash
    GATEWAY_TOKEN=elige-uno BUYER_PRIVATE_KEY=0x... npx tsx src/gateway.ts 8402
    ```
-   Corre junto al comprador, no en el backend: `/api/redeem` exige una firma de wallet que un cliente OpenAI normal no sabe producir. Limitaciones: el historial de chat se aplana en un solo prompt (el backend solo acepta `prompt`), no hay tool calling a través de vouchers y `prompt_tokens` sale 0 porque el backend no lo informa.
-3. **Proveedor de inferencia del backend**: `INFERENCE_API_URL=https://openrouter.ai/api/v1`, con un modelo de OpenRouter por oferta (ver `MODEL_MAP` en `mock/server.ts`, que es la referencia para portarlo al backend real).
+   Corre junto al comprador, no en el backend: `/api/redeem` exige una firma de wallet que un cliente OpenAI normal no sabe producir. El tope firmado es `prompt estimado + max_tokens`, y `usage` refleja los tokens que el backend cobró. Limitaciones: el historial de chat se aplana en un solo prompt (el backend solo acepta `prompt`) y no hay tool calling a través de vouchers.
+3. **Proveedor de inferencia del backend**: OpenRouter por defecto, con un modelo por oferta (`upstreamModel` en `../web/lib/catalog.ts`).
 
 `npm run e2e-openrouter` lo prueba todo contra un **OpenRouter simulado** (`mock/openrouter.ts`, un guion fijo, no un modelo) porque `openrouter.ai` está bloqueado en el entorno de desarrollo. Demuestra el formato y el bucle, no la calidad de las decisiones de un modelo real.
 
@@ -59,11 +59,11 @@ Tres puntos de contacto, todos con la interfaz OpenAI `chat/completions`:
 
 | Variable | Por defecto | Efecto |
 |---|---|---|
-| `BUDGET_MAX_PER_PURCHASE` | 0.05 U | Tope por compra. Se aplica dos veces: contra el precio anunciado y en el cliente x402 (`spendControls`), así un servidor que pida más de lo anunciado no recibe firma. |
+| `BUDGET_MAX_PER_PURCHASE` | 0.05 U | Tope por compra. El cliente x402 (`spendControls`) nunca firma más que el mínimo entre este tope y el precio anunciado, así un servidor que pida más de lo anunciado no recibe firma. |
 | `BUDGET_MAX_PER_DAY` | 0.2 U | Tope diario, contado en `.computepass/ledger.json`. |
-| `BUDGET_MAX_UNITS_PER_REDEEM` | 4096 | Máximo por redención. |
+| `BUDGET_MAX_UNITS_PER_REDEEM` | 4096 | Tope de unidades (tokens de entrada + salida) por redención. |
 | `BUDGET_ALLOWED_OFFERS` / `BUDGET_ALLOWED_MODELS` | todas | Allowlist separada por comas. |
-| `COMPUTEPASS_ASSET_DECIMALS` | 18 | Decimales del token U (**comprobar**). |
+| `COMPUTEPASS_ASSET_DECIMALS` | 18 | Decimales del token U para el presupuesto (los precios usan `decimals` de `/api/offers`). |
 
 Limitación: el tope vive en este proceso, no onchain. Protege contra un modelo que se equivoca, no contra quien tenga la clave. Las session keys reales son fase 2.
 

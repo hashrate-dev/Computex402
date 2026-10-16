@@ -16,3 +16,4 @@ for (const model of models) {
   const j: any = await r.json().catch(() => ({}));
   console.log(JSON.stringify({ model, status: r.status, ms: Date.now() - t0, servedBy: j.model, provider: j.provider, output: j.choices?.[0]?.message?.content?.slice(0, 80), usage: j.usage, error: j.error?.message }));
 }
+export {};

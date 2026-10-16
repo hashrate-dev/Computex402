@@ -89,7 +89,7 @@ try {
   const red = await call("redeem_inference", { voucherId: vid, prompt: "hola", maxUnits: 64 });
   check("redeem_inference returns output", !red.isError && /mock inference/.test(red.json?.output ?? ""), red.isError ? red.text : "");
   const bal = await call("get_voucher_balance", { voucherId: vid });
-  check("get_voucher_balance reflects consumption", bal.json?.remainingUnits === 50000 - red.json?.unitsUsed);
+  check("get_voucher_balance reflects consumption", red.json?.unitsUsed > 0 && bal.json?.remainingUnits === 50000 - red.json?.unitsUsed, `${bal.json?.remainingUnits} vs ${red.json?.unitsUsed}`);
   const rc = await call("get_execution_receipt", { voucherId: vid });
   check("get_execution_receipt has digest and 2 records", rc.json?.records?.length === 2 && /^[0-9a-f]{64}$/.test(rc.json?.digest));
   await client.close();
