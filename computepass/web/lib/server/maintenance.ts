@@ -66,7 +66,7 @@ const EIP3009_ABI = [
 ] as const;
 const AUTHORIZATION_USED = toEventSelector("AuthorizationUsed(address,bytes32)");
 
-async function rpc<T>(deps: Deps, method: string, params: unknown[]): Promise<T> {
+export async function rpc<T>(deps: Deps, method: string, params: unknown[]): Promise<T> {
   const url = deps.env.BSC_RPC_URL || DEFAULT_BSC_TESTNET_RPC;
   const response = await deps.fetch(url, {
     method: "POST",
@@ -162,7 +162,7 @@ export async function reconcilePendingPayments(deps: Deps): Promise<ReconcileOut
   return outcomes;
 }
 
-function sameSecret(a: string, b: string) {
+export function sameSecret(a: string, b: string) {
   const left = new TextEncoder().encode(a);
   const right = new TextEncoder().encode(b);
   let diff = left.length ^ right.length;
