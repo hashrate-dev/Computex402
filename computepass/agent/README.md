@@ -3,6 +3,7 @@
 Cliente y agentes de [ComputePass 402](../web/):
 
 - **`src/mcp.ts`**: servidor MCP con las 6 herramientas del diseño (`list_compute_offers`, `quote_inference`, `buy_compute_pass`, `get_voucher_balance`, `redeem_inference`, `get_execution_receipt`). Modo stdio por defecto; `--http <puerto>` para MCP remoto (Streamable HTTP, exige `MCP_HTTP_TOKEN`).
+- **`src/daemon.ts`**: el mismo agente corriendo solo, manejado desde el panel `/admin` del sitio (ver abajo).
 - **`src/agent.ts`**: agente que descubre ofertas, las compara por precio y SLA, respeta un presupuesto, paga con x402, redime y emite un comprobante. Sin intervención humana y sin LLM: decide con reglas, que es lo que se puede demostrar de forma fiable.
 
 Ambos hablan con la API de `../web` (`/api/status`, `/api/offers`, `/api/vouchers`, `/api/reservations`, `/api/redeem`) y pagan con el cliente oficial `@x402/fetch` + `@bnb-chain/b402` (esquema `exact`, método `eip3009`), el mismo que usa el sitio. El mensaje de redención se importa de `../web/lib/protocol.ts`, así que agente y backend no pueden divergir.
@@ -36,6 +37,21 @@ Cliente MCP (Claude Desktop, Claude Code, etc.):
   "command": "npx", "args": ["tsx", "/ruta/computepass-agent/src/mcp.ts"],
   "env": { "COMPUTEPASS_API_URL": "https://...", "BUYER_PRIVATE_KEY": "0x...", "BUDGET_MAX_PER_DAY": "0.1" } } } }
 ```
+
+## Agente autónomo con panel web (`src/daemon.ts`)
+
+```bash
+computepass/scripts/agent-panel.sh 0xTuDireccionReceptora   # sitio local + agente, todo en uno
+# o contra un sitio publicado:
+AGENT_TOKEN=... COMPUTEPASS_API_URL=https://... npm run daemon
+```
+
+Cada `AGENT_POLL_SECONDS` (15 por defecto) el agente se reporta en `POST /api/agent/sync`: saldo de la wallet, resultados y eventos; recibe la configuración del panel y como mucho una tarea. Para cada tarea reutiliza un voucher con saldo o compra la oferta más barata dentro de los topes, redime y devuelve el resultado al panel.
+
+- Clave: `BUYER_PRIVATE_KEY` o el archivo `~/.computepass/testnet-buyer.key` (el que crea `npm run testnet-buy`). Nunca sale de la máquina.
+- Topes efectivos = el menor entre los `BUDGET_*` locales y los del panel. El panel no puede subirlos.
+- Arranca pausado; se activa desde el panel. Sin conexión con el sitio no hace nada. Solo BSC testnet.
+- `--once` hace una ronda y sale (para pruebas). `npm run e2e-daemon` lo prueba contra el servidor de prueba: pausa, tope del panel que bloquea, tope del panel que no puede agrandar el local, reutilización de voucher y token incorrecto.
 
 ## Compatibilidad con OpenRouter
 

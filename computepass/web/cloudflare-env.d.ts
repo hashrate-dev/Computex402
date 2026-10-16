@@ -16,5 +16,7 @@ declare namespace Cloudflare {
     BSC_RPC_URL?: string;
     /** Bearer token (32+ chars) for POST /api/admin/maintenance; unset disables it. */
     ADMIN_TOKEN?: string;
+    /** Bearer token (32+ chars) for the buyer agent on POST /api/agent/sync; unset disables it. */
+    AGENT_TOKEN?: string;
   }
 }

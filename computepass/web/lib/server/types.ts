@@ -27,6 +27,8 @@ export interface ServerEnv {
   BSC_RPC_URL?: string;
   /** Bearer token for POST /api/admin/maintenance; the endpoint is off without it. */
   ADMIN_TOKEN?: string;
+  /** Bearer token (32+ chars) the buyer agent uses on POST /api/agent/sync; unset disables it. */
+  AGENT_TOKEN?: string;
 }
 
 export interface Deps {

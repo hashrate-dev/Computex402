@@ -46,7 +46,8 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 | `FACILITATOR_URL` | no | Por defecto `https://api.x402.unibase.com/v2`. |
 | `PUBLIC_HOST` | no | Host que deben nombrar las firmas de redención; por defecto el del request. Fijarlo si hay proxy delante. |
 | `VOUCHER_CONTRACT_ADDRESS` | no | Solo informativo hasta la fase 2. |
-| `ADMIN_TOKEN` | para el cron | Protege `POST /api/admin/maintenance`. |
+| `ADMIN_TOKEN` | para el cron y el panel | Protege `POST /api/admin/maintenance` y el panel `/admin` (32+ caracteres). |
+| `AGENT_TOKEN` | para el agente | Lo usa el agente del Mac en `POST /api/agent/sync` (32+ caracteres, distinto de `ADMIN_TOKEN`). |
 | `BSC_RPC_URL` | no | RPC de BSC testnet para conciliar pagos. |
 
 ## Reglas de dinero
@@ -88,7 +89,18 @@ El pase de R1 bajó de 100.000 a 20.000 unidades: a 0,018 U se perdían unos 0,2
 computepass/scripts/testnet-demo.sh 0xTuDireccionReceptora [offerId]
 ```
 
-Compila, aplica las migraciones locales que falten, arranca el Worker en `127.0.0.1:8788` con esa dirección y compra un pase con una wallet de prueba cuya clave queda en `~/.computepass/testnet-buyer.key` (fuera del repo). Si la wallet no tiene U, imprime la dirección a fondear y no firma nada. No hace falta tBNB.
+Con `scripts/local-site.sh`, compila, aplica las migraciones locales que falten, arranca el Worker en `127.0.0.1:8788` con esa dirección y compra un pase con una wallet de prueba cuya clave queda en `~/.computepass/testnet-buyer.key` (fuera del repo). Si la wallet no tiene U, imprime la dirección a fondear y no firma nada. No hace falta tBNB.
+
+## Panel del agente (`/admin`)
+
+El agente comprador corre en tu máquina (`../agent/src/daemon.ts`) y se maneja desde `/admin`, protegido con `ADMIN_TOKEN`. El panel muestra si el agente está en línea, el saldo U de su wallet (leído de la cadena, o el que reportó el agente si el RPC no responde), lo gastado hoy, vouchers, compras, consumo y cada decisión del agente (compró, reutilizó un voucher, rechazó por un tope). Desde ahí se cargan tareas, se fijan topes y se pausa.
+
+- `POST /api/agent/sync` (`AGENT_TOKEN`): el agente se reporta, entrega resultados y recibe la configuración y como mucho una tarea. Una tarea tomada que no vuelve en 30 minutos se cierra como fallida y no se reintenta, porque pudo haber pagado.
+- `GET/POST /api/admin/agent` (`ADMIN_TOKEN`): lo que usa el panel.
+- **El sitio nunca tiene la clave de la wallet.** Los topes del panel solo achican los topes locales del agente (se aplica el menor). Quien entre al panel puede pausar o hacer gastar menos, no más.
+- **Arranca pausado** y, si no puede hablar con el sitio, no hace nada.
+
+Todo junto en local: `computepass/scripts/agent-panel.sh 0xTuDireccionReceptora` (crea las claves en `~/.computepass/control.env`, arranca el sitio y deja el agente corriendo).
 
 ## Lo que falta, sin adornos
 

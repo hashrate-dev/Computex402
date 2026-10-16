@@ -4,6 +4,7 @@ import { getAddress } from "viem";
 import { recoverEip3009Payer } from "@bnb-chain/b402";
 import { offers } from "../../web/lib/catalog.js";
 import { REDEMPTION_VERSION } from "../../web/lib/protocol.js";
+import { handleAdminAgent, handleAgentSync } from "../../web/lib/server/agent.js";
 import { handleRedeem } from "../../web/lib/server/redeem.js";
 import { handleReservation } from "../../web/lib/server/reservations.js";
 import { handleListVouchers } from "../../web/lib/server/vouchers.js";
@@ -29,6 +30,7 @@ const PORT = Number(process.env.PORT ?? 4020);
 const MERCHANT = getAddress(process.env.MERCHANT_ADDRESS ?? "0x000000000000000000000000000000000000dEaD");
 const FACILITATOR = "http://facilitator.invalid";
 const ECHO_INFERENCE = "http://echo-inference.invalid/v1";
+const NO_RPC = "http://rpc.invalid";
 
 const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input instanceof Request ? input.url : input);
@@ -42,6 +44,7 @@ const fakeFetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     }
     return Response.json({ success: true, transaction: `0x${auth.nonce.slice(2)}`, network: "eip155:97", payer: auth.from });
   }
+  if (url.startsWith(NO_RPC)) throw new Error("no chain in the contract-test server");
   if (url.startsWith(ECHO_INFERENCE)) {
     const body = JSON.parse(String(init?.body));
     const prompt = String(body.messages.at(-1).content);
@@ -62,6 +65,9 @@ const deps: Deps = {
     FACILITATOR_URL: FACILITATOR,
     INFERENCE_API_URL: process.env.INFERENCE_API_URL ?? ECHO_INFERENCE,
     INFERENCE_API_KEY: process.env.INFERENCE_API_KEY ?? "mock",
+    ADMIN_TOKEN: process.env.ADMIN_TOKEN,
+    AGENT_TOKEN: process.env.AGENT_TOKEN,
+    BSC_RPC_URL: NO_RPC,
   },
   fetch: fakeFetch,
   now: () => Math.floor(Date.now() / 1000),
@@ -99,6 +105,8 @@ createServer(async (req, res) => {
     if (route === "GET /api/vouchers") return send(res, await handleListVouchers(request, deps));
     if (route === "POST /api/reservations") return send(res, await handleReservation(request, deps));
     if (route === "POST /api/redeem") return send(res, await handleRedeem(request, deps));
+    if (route === "GET /api/admin/agent" || route === "POST /api/admin/agent") return send(res, await handleAdminAgent(request, deps));
+    if (route === "POST /api/agent/sync") return send(res, await handleAgentSync(request, deps));
     send(res, Response.json({ error: "not_found" }, { status: 404 }));
   } catch (e) {
     send(res, Response.json({ error: "internal", detail: (e as Error).message }, { status: 500 }));
