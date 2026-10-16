@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env*
+.studio/
+.computepass/
+*.keystore
+.DS_Store
