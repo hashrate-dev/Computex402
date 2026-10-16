@@ -1,0 +1,31 @@
+{
+  "name": "computepass-agent",
+  "version": "0.2.0",
+  "description": "ComputePass 402: MCP server and reference buyer agent",
+  "scripts": {
+    "typecheck": "tsc",
+    "mcp": "tsx src/mcp.ts",
+    "agent": "tsx src/agent.ts",
+    "mock-server": "tsx mock/server.ts",
+    "e2e": "tsx scripts/e2e.ts",
+    "llm-agent": "tsx src/llmAgent.ts",
+    "gateway": "tsx src/gateway.ts",
+    "e2e-openrouter": "tsx scripts/e2e-openrouter.ts",
+    "inference-check": "tsx scripts/inference-check.ts"
+  },
+  "dependencies": {
+    "@bnb-chain/b402": "^0.2.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@x402/core": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "viem": "^2.57.7",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "type": "module",
+  "private": true
+}
