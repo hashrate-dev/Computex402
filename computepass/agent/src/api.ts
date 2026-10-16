@@ -1,22 +1,22 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { x402Client, wrapFetchWithPayment, decodePaymentResponseHeader } from "@x402/fetch";
 import type { PaymentRequirements } from "@x402/fetch";
 import { B402ExactClientScheme } from "@bnb-chain/b402/client";
 import { fromAtomic, toAtomic, type Config } from "./config.js";
 import { BudgetError, Ledger } from "./ledger.js";
+import { CHAIN_ID, MAX_REDEMPTION_UNITS, REDEMPTION_MAX_TTL_SECONDS, redemptionMessage } from "../../web/lib/protocol.js";
 
 /**
- * Client for the ComputePass 402 HTTP API (documented in /api/openapi).
- *
- * Field names below follow the project document (section 15). Where the
- * document does not pin a name, the choice is marked "ASSUMED" so it is easy
- * to align once the backend source is available.
+ * Client for the ComputePass 402 HTTP API (computepass/web, documented in
+ * /api/openapi). The redemption message comes from web/lib/protocol.ts, the
+ * same file the backend verifies against.
  */
 
 export interface Offer {
   id: string;
   model: string;
   provider?: string;
+  upstreamModel?: string;
   units: number;
   price: number; // U per pass
   latencyMs?: number;
@@ -32,7 +32,7 @@ export interface Voucher {
   totalUnits?: number;
   remainingUnits: number;
   status: string;
-  expiresAt?: string;
+  expiresAt?: string; // ISO 8601
   txHash?: string;
   raw: unknown;
 }
@@ -48,7 +48,6 @@ export class ApiError extends Error {
 }
 
 type Obj = Record<string, unknown>;
-const pick = (o: Obj, ...keys: string[]) => keys.map((k) => o[k]).find((v) => v !== undefined && v !== null);
 const asNum = (v: unknown): number | undefined => {
   if (typeof v === "number") return v;
   if (typeof v === "string") {
@@ -61,18 +60,19 @@ const unwrapList = (body: unknown, key: string): Obj[] =>
   (Array.isArray(body) ? body : ((body as Obj)?.[key] ?? (body as Obj)?.data ?? [])) as Obj[];
 
 export function normalizeOffer(o: Obj): Offer {
-  const units = asNum(pick(o, "units", "capacityUnits", "capacity", "maxUnits", "outputUnits")) ?? 0;
-  const priceField = pick(o, "price", "priceU", "amount", "priceAmount");
-  const price = asNum(typeof priceField === "object" ? pick(priceField as Obj, "amount", "value") : priceField) ?? NaN;
-  const latency = pick(o, "latencyMs", "targetLatencyMs", "latency", "sla");
+  const units = asNum(o.units) ?? 0;
+  // Price comes from the exact atomic amount; priceLabel ("0,01 U") is display-only.
+  const decimals = asNum(o.decimals) ?? 18;
+  const price = typeof o.priceAtomic === "string" && /^\d+$/.test(o.priceAtomic) ? fromAtomic(o.priceAtomic, decimals) : NaN;
   return {
-    id: String(pick(o, "id", "offerId", "slug")),
-    model: String(pick(o, "model", "modelName", "name") ?? "unknown"),
-    provider: pick(o, "provider", "providerName") as string | undefined,
+    id: String(o.id),
+    model: String(o.model ?? "unknown"),
+    provider: o.provider as string | undefined,
+    upstreamModel: o.upstreamModel as string | undefined,
     units,
     price,
-    latencyMs: typeof latency === "string" && /s$/.test(latency.trim()) && !/ms$/.test(latency) ? asNum(latency)! * 1000 : asNum(latency),
-    validityDays: asNum(pick(o, "validityDays", "durationDays", "validDays")),
+    latencyMs: typeof o.latencyMs === "number" ? o.latencyMs : undefined,
+    validityDays: asNum(o.expiresInDays),
     pricePerKUnits: units > 0 ? (price / units) * 1000 : Infinity,
     raw: o,
   };
@@ -80,24 +80,21 @@ export function normalizeOffer(o: Obj): Offer {
 
 export function normalizeVoucher(v: Obj): Voucher {
   return {
-    id: String(pick(v, "id", "voucherId")),
-    offerId: pick(v, "offerId", "offer") as string | undefined,
-    owner: pick(v, "owner", "ownerAddress") as string | undefined,
-    totalUnits: asNum(pick(v, "totalUnits", "units")),
-    remainingUnits: asNum(pick(v, "remainingUnits", "remaining", "balance")) ?? 0,
-    status: String(pick(v, "status") ?? "unknown"),
-    expiresAt: pick(v, "expiresAt", "expiry", "validUntil") as string | undefined,
-    txHash: pick(v, "txHash", "settlementTxHash", "transaction") as string | undefined,
+    id: String(v.id),
+    offerId: v.offerId as string | undefined,
+    owner: v.ownerAddress as string | undefined,
+    totalUnits: asNum(v.totalUnits),
+    remainingUnits: asNum(v.remainingUnits) ?? 0,
+    status: String(v.status ?? "unknown"),
+    // The API returns Unix seconds.
+    expiresAt: typeof v.expiresAt === "number" ? new Date(v.expiresAt * 1000).toISOString() : undefined,
+    txHash: v.paymentTx as string | undefined,
     raw: v,
   };
 }
 
 export const sha256Hex = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 
-/** Exact message the backend verifies (project document, section 11). */
-export function redemptionMessage(voucherId: string, promptSha256: string, units: number): string {
-  return `ComputePass redemption\nVoucher: ${voucherId}\nPrompt SHA-256: ${promptSha256}\nUnits: ${units}`;
-}
 
 export class ComputePassClient {
   constructor(
@@ -133,7 +130,10 @@ export class ComputePassClient {
     if (Number.isFinite(offer.price)) this.ledger.assertCanBuy(offer.id, offer.model, offer.price);
 
     const { maxPerPurchase } = this.cfg.budget;
-    const capAtomic = toAtomic(Math.min(maxPerPurchase, this.ledger.budgetStatus().remainingToday), this.cfg.assetDecimals);
+    // Never pay more than the advertised price, nor more than the budget allows.
+    const budgetAtomic = toAtomic(Math.min(maxPerPurchase, this.ledger.budgetStatus().remainingToday), this.cfg.assetDecimals);
+    const advertised = (offer.raw as Obj).priceAtomic;
+    const capAtomic = typeof advertised === "string" && /^\d+$/.test(advertised) && BigInt(advertised) < budgetAtomic ? BigInt(advertised) : budgetAtomic;
     let selected: PaymentRequirements | undefined;
     const payments = new x402Client()
       .register(this.cfg.network as `${string}:${string}`, new B402ExactClientScheme({ account, methods: ["eip3009"] }))
@@ -158,8 +158,7 @@ export class ComputePassClient {
       res = await paidFetch(this.#url("/api/reservations"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        // ASSUMED field names: offerId + owner (the buyer wallet the payer must match).
-        body: JSON.stringify({ offerId, owner: account.address }),
+        body: JSON.stringify({ offerId, buyer: account.address }),
       });
     } catch (e) {
       const msg = (e as Error).message;
@@ -183,30 +182,52 @@ export class ComputePassClient {
     return { voucher, settlement: settle, paid, receiptId: record.id };
   }
 
-  /** Redeem inference from a voucher; signs the owner message locally. */
+  /**
+   * Redeem inference from a voucher; signs the v2 owner message locally.
+   * `maxUnits` caps prompt + completion tokens; the backend bills real usage.
+   */
   async redeem(voucherId: string, prompt: string, maxUnits: number) {
     const account = this.#requireAccount();
-    if (!prompt.trim() || prompt.length > 16000) throw new Error("prompt must be 1..16000 characters");
-    if (!Number.isInteger(maxUnits) || maxUnits < 1 || maxUnits > Math.min(4096, this.cfg.budget.maxUnitsPerRedeem)) {
-      throw new BudgetError(`maxUnits must be an integer in 1..${Math.min(4096, this.cfg.budget.maxUnitsPerRedeem)}`);
+    const text = prompt.trim();
+    if (!text || text.length > 16000) throw new Error("prompt must be 1..16000 characters");
+    const cap = Math.min(MAX_REDEMPTION_UNITS, this.cfg.budget.maxUnitsPerRedeem);
+    if (!Number.isInteger(maxUnits) || maxUnits < 1 || maxUnits > cap) {
+      throw new BudgetError(`maxUnits must be an integer in 1..${cap}`);
     }
-    const promptSha256 = sha256Hex(prompt);
-    const signature = await account.signMessage({ message: redemptionMessage(voucherId, promptSha256, maxUnits) });
+    const voucher = (await this.vouchers()).find((v) => v.id === voucherId);
+    if (!voucher?.offerId) throw new ApiError(404, null, `voucher not found for this wallet: ${voucherId}`);
+    const promptSha256 = sha256Hex(text);
+    const intent = {
+      domain: new URL(this.cfg.apiUrl).host,
+      chainId: CHAIN_ID,
+      voucherId,
+      offerId: voucher.offerId,
+      promptSha256,
+      maxUnits,
+      nonce: `0x${randomBytes(32).toString("hex")}`,
+      expiresAt: Math.floor(Date.now() / 1000) + REDEMPTION_MAX_TTL_SECONDS - 60,
+    };
+    const signature = await account.signMessage({ message: redemptionMessage(intent) });
     try {
-      // ASSUMED field names: voucherId, prompt, maxTokens, signature (+ owner for convenience).
       const body = (await this.#json("POST", "/api/redeem", {
         voucherId,
-        prompt,
-        maxTokens: maxUnits,
+        offerId: intent.offerId,
+        address: account.address,
+        prompt: text,
+        maxUnits,
+        nonce: intent.nonce,
+        expiresAt: intent.expiresAt,
         signature,
-        owner: account.address,
       })) as Obj;
+      const usage = (body.usage ?? {}) as Obj;
       const out = {
-        output: String(pick(body, "output", "result", "content", "text") ?? ""),
-        model: pick(body, "model") as string | undefined,
-        unitsUsed: asNum(pick(body, "unitsUsed", "consumedUnits", "consumed", "usage")),
-        remainingUnits: asNum(pick(body, "remainingUnits", "remaining")),
-        redemptionId: pick(body, "redemptionId", "id") as string | undefined,
+        output: String(body.output ?? ""),
+        model: body.model as string | undefined,
+        unitsUsed: asNum(body.usedUnits),
+        promptTokens: asNum(usage.promptTokens),
+        completionTokens: asNum(usage.completionTokens),
+        remainingUnits: asNum(body.remainingUnits),
+        redemptionId: body.redemptionId as string | undefined,
       };
       const record = this.ledger.addRedemption({
         voucherId,

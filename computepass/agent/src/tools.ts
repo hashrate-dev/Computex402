@@ -40,7 +40,7 @@ export function computePassTools(cfg: Config, ledger: Ledger, api: ComputePassCl
       description:
         "Price a job across offers, cheapest first, checked against the agent's budget. Also reports whether an existing voucher already covers it.",
       shape: {
-        units: z.number().int().positive().describe("Output units (tokens) the job needs"),
+        units: z.number().int().positive().describe("Units the job needs (1 unit = 1 token, prompt + completion)"),
         model: z.string().optional().describe("Model filter, e.g. 'llama' or 'deepseek'"),
         maxLatencyMs: z.number().positive().optional(),
       },
@@ -84,15 +84,15 @@ export function computePassTools(cfg: Config, ledger: Ledger, api: ComputePassCl
     {
       name: "redeem_inference",
       description:
-        "Run a prompt against a voucher. The wallet signs the redemption locally; unused reserved units return to the voucher.",
+        "Run a prompt against a voucher. maxUnits caps prompt + completion tokens; the wallet signs a single-use redemption locally and only real usage is billed.",
       shape: {
         voucherId: z.string(),
         prompt: z.string().min(1).max(16000),
-        maxUnits: z.number().int().min(1).max(4096).default(512),
+        maxUnits: z.number().int().min(1).max(32000).default(1024),
       },
       readOnly: false,
       run: async ({ voucherId, prompt, maxUnits }: { voucherId: string; prompt: string; maxUnits?: number }) =>
-        api.redeem(voucherId, prompt, maxUnits ?? 512),
+        api.redeem(voucherId, prompt, maxUnits ?? 1024),
     },
     {
       name: "get_execution_receipt",

@@ -1,5 +1,7 @@
 # ComputePass 402: diagnóstico y plan del hito 28
 
+> **Actualización 2026-10-16 (tarde).** El código del sitio ya está en [`web/`](web/). Resuelto ahí: riesgo 3 (firma v2 con dominio, oferta, nonce y caducidad), riesgo 4 (un modelo por oferta), riesgo 7 (se cobran tokens de entrada + salida), compra x402 idempotente con el nonce reservado antes de liquidar, y el botón de compra del sitio, que fallaba porque el cliente x402 rechaza el token U sin `spendControls`. El agente y el MCP usan la API real (tareas 1, 2 y 5 hechas). Sigue pendiente: 3 (API pública), 4 (configurar secretos), 6 (compra real en testnet) y 7 (demo). Detalle en [`web/README.md`](web/README.md).
+
 Fecha: 2026-10-16. Autor: Claude (rol CEO/CTO pedido por Hash).
 
 ## Diagnóstico honesto
