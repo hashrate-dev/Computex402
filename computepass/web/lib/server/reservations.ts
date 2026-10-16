@@ -25,7 +25,7 @@ function sameRequirements(left: PaymentRequirements, right: PaymentRequirements)
   );
 }
 
-type PaymentRow = {
+export type PaymentRow = {
   nonce: string;
   voucherId: string;
   offerId: string;
@@ -44,7 +44,7 @@ const toBigInt = (value: unknown): bigint | null => {
 };
 
 /** Inserts the voucher for a settled payment. Idempotent: safe to call again on retry. */
-async function issueVoucher(db: SqlDb, payment: PaymentRow, offer: Offer) {
+export async function issueVoucher(db: SqlDb, payment: PaymentRow, offer: Offer) {
   const issuedAt = payment.updatedAt;
   const expiresAt = issuedAt + offer.expiresInDays * 86_400;
   await db
@@ -94,8 +94,8 @@ function voucherResponse(voucher: unknown, payment: PaymentRow, status: number) 
  *   idempotent: if the worker dies between settlement and issuing, resending
  *   the same PAYMENT-SIGNATURE issues the voucher instead of charging again.
  * - When the settlement outcome is unknown (timeout, bad response) the
- *   payment stays `pending` and is never auto-retried: it needs on-chain
- *   reconciliation (see README, "Conciliación").
+ *   payment stays `pending` and is never auto-retried; reconcilePendingPayments
+ *   (lib/server/maintenance.ts) resolves it against the chain.
  */
 export async function handleReservation(request: Request, deps: Deps): Promise<Response> {
   const { db, env } = deps;
@@ -179,11 +179,11 @@ export async function handleReservation(request: Request, deps: Deps): Promise<R
   const voucherId = (deps.uuid ?? (() => crypto.randomUUID()))();
   const claim = await db
     .prepare(
-      `INSERT INTO payments (nonce, voucher_id, offer_id, payer, amount_atomic, status, payment_tx, error, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)
+      `INSERT INTO payments (nonce, voucher_id, offer_id, payer, amount_atomic, status, payment_tx, error, created_at, updated_at, valid_before)
+       VALUES (?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?, ?)
        ON CONFLICT(nonce) DO NOTHING`,
     )
-    .bind(nonce, voucherId, offer.id, buyer, offer.priceAtomic, now, now)
+    .bind(nonce, voucherId, offer.id, buyer, offer.priceAtomic, now, now, Number(validBefore))
     .run();
 
   if (!claim.meta.changes) {

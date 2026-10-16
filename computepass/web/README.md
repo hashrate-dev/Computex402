@@ -22,7 +22,7 @@ Next.js (vinext) sobre Cloudflare Workers + D1. Nació como un starter de ChatGP
 
 ```bash
 npm ci
-npm test           # 27 pruebas de dinero y seguridad
+npm test           # pruebas de dinero, seguridad, mantenimiento y precios
 npm run typecheck
 npm run lint
 npm run build      # artefacto del Worker en dist/
@@ -46,6 +46,8 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 | `FACILITATOR_URL` | no | Por defecto `https://api.x402.unibase.com/v2`. |
 | `PUBLIC_HOST` | no | Host que deben nombrar las firmas de redención; por defecto el del request. Fijarlo si hay proxy delante. |
 | `VOUCHER_CONTRACT_ADDRESS` | no | Solo informativo hasta la fase 2. |
+| `ADMIN_TOKEN` | para el cron | Protege `POST /api/admin/maintenance`. |
+| `BSC_RPC_URL` | no | RPC de BSC testnet para conciliar pagos. |
 
 ## Reglas de dinero
 
@@ -54,7 +56,7 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 - Se valida que la autorización EIP-3009 firmada pague el monto exacto, al receptor correcto, desde el comprador declarado y dentro de su ventana de validez, además del eco `accepted`.
 - El nonce EIP-3009 se reserva en la tabla `payments` **antes** de llamar al facilitador: dos envíos simultáneos del mismo pago no llegan los dos a liquidar.
 - El voucher se emite solo tras una liquidación correcta, y la emisión es idempotente: si el Worker muere entre liquidar y emitir, reenviar el mismo pago emite el voucher sin cobrar otra vez.
-- Si el facilitador no responde al liquidar, el pago queda `pending` y no se reintenta solo (ver "Conciliación").
+- Si el facilitador no responde al liquidar, el pago queda `pending` y no se reintenta solo; el mantenimiento lo concilia con la cadena.
 
 **Redención (`POST /api/redeem`)**, protocolo v2 (`lib/protocol.ts`)
 - La firma cubre dominio, chain ID, voucher, oferta, SHA-256 del prompt, tope de unidades, nonce de un solo uso y caducidad de 10 minutos como máximo. Una firma capturada no se puede reenviar ni usar en otro despliegue.
@@ -62,12 +64,36 @@ node --import ./scripts/sites-env.mjs ./node_modules/wrangler/bin/wrangler.js d1
 - Se cobra `prompt_tokens + completion_tokens` informados por el proveedor, nunca más que el tope firmado. Si el proveedor no informa uso, se cobra el tope completo. Si falla, se devuelve toda la reserva.
 - Cada oferta se sirve con su propio modelo: un pase de DeepSeek no puede responderse con Llama.
 
+## Mantenimiento (cron)
+
+`POST /api/admin/maintenance` con `Authorization: Bearer $ADMIN_TOKEN` (32+ caracteres; sin `ADMIN_TOKEN` el endpoint no existe). Llamarlo cada 5–10 minutos desde cualquier cron:
+
+- **Redenciones colgadas:** si el Worker murió a mitad de una inferencia, a los 15 minutos devuelve la reserva al voucher. Es atómico y solo aplica a filas `pending`, así que una respuesta tardía nunca devuelve dos veces.
+- **Conciliación de pagos:** para pagos `pending` con más de 10 minutos, consulta `authorizationState(payer, nonce)` del token U en BSC testnet (`BSC_RPC_URL`). Si la autorización se consumió, el comprador pagó: se marca `settled`, se busca el tx en los logs `AuthorizationUsed` y se emite el voucher. Si no se consumió y venció su `validBefore`, se marca `failed` y el comprador puede pagar de nuevo.
+
+## Precios
+
+Cada oferta guarda el precio de lista del proveedor (`upstreamUsdPerMTok`, leído de OpenRouter el 2026-10-16) y `tests/catalog.test.ts` exige que el pase cueste al menos 1,5 veces su peor caso (todo en tokens de salida), suponiendo 1 U = 1 USD.
+
+| Oferta | Unidades | Peor costo | Precio | Margen |
+| --- | --- | --- | --- | --- |
+| Llama 3.3 70B | 50.000 | 0,016 USD | 0,025 U | 1,56x |
+| DeepSeek R1 | 20.000 | 0,050 USD | 0,08 U | 1,6x |
+
+El pase de R1 bajó de 100.000 a 20.000 unidades: a 0,018 U se perdían unos 0,23 USD por pase.
+
+## Compra real en testnet con un comando
+
+```bash
+computepass/scripts/testnet-demo.sh 0xTuDireccionReceptora [offerId]
+```
+
+Compila, aplica las migraciones locales que falten, arranca el Worker en `127.0.0.1:8788` con esa dirección y compra un pase con una wallet de prueba cuya clave queda en `~/.computepass/testnet-buyer.key` (fuera del repo). Si la wallet no tiene U, imprime la dirección a fondear y no firma nada. No hace falta tBNB.
+
 ## Lo que falta, sin adornos
 
-- **Nada de esto se probó contra la red real.** Las pruebas usan un facilitador simulado que verifica firmas pero no liquida, y un proveedor simulado. Hace falta una compra real en BSC Testnet con una wallet de prueba con U, y una redención real contra OpenRouter.
-- **Conciliación.** Un pago `pending` con error `settlement_outcome_unknown` necesita que alguien compruebe en la cadena (`authorizationState(payer, nonce)` del token U) si se cobró, y lo pase a `settled` o `failed`. Hoy es manual (consulta SQL a D1).
-- **Redenciones colgadas.** Si el Worker muere a mitad de una inferencia, la reserva queda descontada y la fila en `pending`. Falta un barrido periódico que devuelva reservas `pending` antiguas.
-- **Precios.** Con precios públicos aproximados de OpenRouter, 50.000 tokens de Llama 3.3 70B o 100.000 de DeepSeek R1 cuestan más de lo que se cobra en U. En testnet da igual; antes de mainnet hay que repreciar.
-- **Consulta de vouchers pública por dirección.** Cualquiera puede ver el inventario de una wallet. Es aceptable en testnet (los pagos ya son públicos en la cadena), no para mainnet.
-- **Despliegue fuera de ChatGPT Sites.** Para Cloudflare propio hace falta un `wrangler.jsonc` con el ID real de D1; el `wrangler.json` generado usa un ID de relleno.
+- **Todavía no hubo una compra real.** Las pruebas usan un facilitador y un proveedor simulados. El script de arriba es el paso que falta.
+- **Supuestos sin verificar:** que el token U implementa `authorizationState` y `AuthorizationUsed` (estándar EIP-3009) y que 1 U = 1 USD.
+- **Consulta de vouchers pública por dirección.** Aceptable en testnet, no en mainnet.
+- **Despliegue fuera de ChatGPT Sites.** Para Cloudflare propio hace falta un `wrangler.jsonc` con el ID real de D1.
 - `components/ui/` trae componentes del starter que el sitio no usa.

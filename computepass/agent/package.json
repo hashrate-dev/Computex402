@@ -11,7 +11,8 @@
     "llm-agent": "tsx src/llmAgent.ts",
     "gateway": "tsx src/gateway.ts",
     "e2e-openrouter": "tsx scripts/e2e-openrouter.ts",
-    "inference-check": "tsx scripts/inference-check.ts"
+    "inference-check": "tsx scripts/inference-check.ts",
+    "testnet-buy": "tsx scripts/testnet-buy.ts"
   },
   "dependencies": {
     "@bnb-chain/b402": "^0.2.1",

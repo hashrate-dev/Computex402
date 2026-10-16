@@ -38,6 +38,8 @@ export const payments = sqliteTable(
     error: text("error"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
+    /** EIP-3009 validBefore; past it an unused authorization can never settle. */
+    validBefore: integer("valid_before"),
   },
   (table) => [uniqueIndex("payments_voucher_id_unique").on(table.voucherId)],
 );

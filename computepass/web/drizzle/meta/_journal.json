@@ -15,6 +15,13 @@
       "when": 1792152271127,
       "tag": "0001_redemption_v2_payments",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792155156581,
+      "tag": "0002_payment_valid_before",
+      "breakpoints": true
     }
   ]
 }

@@ -23,6 +23,10 @@ export interface ServerEnv {
   /** Host the redemption signature must name; defaults to the request host. */
   PUBLIC_HOST?: string;
   VOUCHER_CONTRACT_ADDRESS?: string;
+  /** JSON-RPC used to reconcile payments; defaults to a public BSC testnet node. */
+  BSC_RPC_URL?: string;
+  /** Bearer token for POST /api/admin/maintenance; the endpoint is off without it. */
+  ADMIN_TOKEN?: string;
 }
 
 export interface Deps {

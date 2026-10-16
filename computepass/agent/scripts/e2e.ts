@@ -18,8 +18,8 @@ const env = {
   COMPUTEPASS_API_URL: `http://localhost:${PORT}`,
   BUYER_PRIVATE_KEY: key,
   COMPUTEPASS_STATE_DIR: stateDir,
-  BUDGET_MAX_PER_PURCHASE: "0.015",
-  BUDGET_MAX_PER_DAY: "0.05",
+  BUDGET_MAX_PER_PURCHASE: "0.03",
+  BUDGET_MAX_PER_DAY: "0.1",
 };
 let failures = 0;
 const check = (name: string, cond: boolean, detail = "") => {
@@ -39,7 +39,7 @@ const server = spawn(tsx, ["mock/server.ts"], { env: { ...env, PORT }, stdio: ["
 await new Promise<void>((resolve) => server.stderr.on("data", (d) => String(d).includes("contract-test") && resolve()));
 
 try {
-  // 1. Agent buys the cheapest pass within budget (Llama: DeepSeek 0.018 > 0.015 cap) and redeems.
+  // 1. Agent buys the cheapest pass within budget (Llama 0.025 U; DeepSeek 0.08 > 0.03 cap) and redeems.
   const r1 = run(["src/agent.ts", "Explain x402 in one sentence.", "--units", "256"]);
   check("agent run 1 exits 0", r1.code === 0, r1.code ? r1.out.slice(-400) : "");
   check("agent paid via x402", /Pay via x402/.test(r1.out) && /llama-70b-burst/.test(r1.out));
